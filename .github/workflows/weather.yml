@@ -1,0 +1,29 @@
+name: weather-alert
+
+on:
+  schedule:
+    # เวลา UTC -> ไทย (UTC+7): 22:00=05:00, 04:00=11:00, 08:00=15:00, 11:00=18:00, 14:00=21:00
+    - cron: "0 22,4,8,11,14 * * *"
+  workflow_dispatch: {}
+
+permissions:
+  contents: read
+
+jobs:
+  notify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - name: Send Telegram weather report
+        run: python3 weather_alert.py
+        env:
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+          PLACE_NAME: ${{ vars.PLACE_NAME }}
+          LAT: ${{ vars.LAT }}
+          LON: ${{ vars.LON }}
+          PM_THRESHOLD: ${{ vars.PM_THRESHOLD }}
+          HEAT_THRESHOLD: ${{ vars.HEAT_THRESHOLD }}
+          RAIN_THRESHOLD: ${{ vars.RAIN_THRESHOLD }}
+          UV_THRESHOLD: ${{ vars.UV_THRESHOLD }}
