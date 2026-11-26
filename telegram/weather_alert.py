@@ -6,7 +6,11 @@
   PLACE_NAME  ชื่อสถานที่ที่แสดง   (ค่าเริ่มต้น: นครพนม (อ.เมือง))
   LAT, LON    พิกัด               (ค่าเริ่มต้น: 17.4105, 104.7783)
   PM_THRESHOLD, HEAT_THRESHOLD, RAIN_THRESHOLD, UV_THRESHOLD  เกณฑ์แจ้งเตือน
+  SEND_TIMES  เวลาส่งตามเวลาไทย คั่นด้วยจุลภาค (ค่าเริ่มต้น: 05:00,11:00,15:00,18:00,21:00)
   DRY_RUN=1   พิมพ์ข้อความแทนการส่งจริง
+
+เมื่อรันจาก schedule ของ GitHub Actions สคริปต์จะรอจนถึงเวลาไทยที่ใกล้ที่สุดใน SEND_TIMES
+(workflow เริ่มก่อนเวลา 15 นาทีเพื่อชดเชยความล่าช้าของคิว) ถ้ารันช้ากว่าเวลา จะส่งทันที
 """
 import html
 import json
@@ -177,7 +181,34 @@ def send(text):
     sys.exit("ส่งข้อความ Telegram ไม่สำเร็จ")
 
 
+def wait_for_slot(max_wait=20 * 60):
+    """รอถึงเวลาไทยที่กำหนด (เฉพาะเมื่อรันจาก schedule) เพื่อให้ข้อความตรงเวลา"""
+    if os.getenv("GITHUB_EVENT_NAME") != "schedule":
+        return
+    slots = []
+    for t in env("SEND_TIMES", "05:00,11:00,15:00,18:00,21:00").split(","):
+        try:
+            hh, mm = t.strip().split(":")
+            slots.append((int(hh), int(mm)))
+        except ValueError:
+            continue
+    now = datetime.now(BKK)
+    waits = []
+    for hh, mm in slots:
+        target = now.replace(hour=hh, minute=mm, second=0, microsecond=0)
+        if target < now - timedelta(minutes=1):
+            target += timedelta(days=1)
+        waits.append((target - now).total_seconds())
+    if not waits:
+        return
+    wait = min(waits)
+    if 0 < wait <= max_wait:
+        print(f"รอ {wait:.0f} วินาทีจนถึงเวลาส่ง (เวลาไทย)", flush=True)
+        time.sleep(wait)
+
+
 def main():
+    wait_for_slot()
     w, a = fetch()
     if not w and not a:
         sys.exit("ดึงข้อมูลจาก Open-Meteo ไม่สำเร็จ")

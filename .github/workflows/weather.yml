@@ -2,8 +2,10 @@ name: weather-alert
 
 on:
   schedule:
-    # เวลา UTC -> ไทย (UTC+7): 22:00=05:00, 04:00=11:00, 08:00=15:00, 11:00=18:00, 14:00=21:00
-    - cron: "0 22,4,8,11,14 * * *"
+    # เริ่มก่อนเวลาส่งจริง 15 นาที เพราะ GitHub มักเริ่มรันช้า สคริปต์จะรอจนถึงเวลาไทยที่กำหนดเอง
+    # เวลาส่งจริง (ไทย) 05:00 11:00 15:00 18:00 21:00 = เริ่มรัน 04:45 10:45 14:45 17:45 20:45
+    # เวลา UTC (ไทย-7): 21:45, 03:45, 07:45, 10:45, 13:45
+    - cron: "45 21,3,7,10,13 * * *"
   workflow_dispatch: {}
 
 permissions:
@@ -12,7 +14,7 @@ permissions:
 jobs:
   notify:
     runs-on: ubuntu-latest
-    timeout-minutes: 5
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@v4
       - name: Send Telegram weather report
@@ -20,6 +22,7 @@ jobs:
         env:
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
           TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+          SEND_TIMES: ${{ vars.SEND_TIMES }}
           PLACE_NAME: ${{ vars.PLACE_NAME }}
           LAT: ${{ vars.LAT }}
           LON: ${{ vars.LON }}

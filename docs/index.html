@@ -73,6 +73,13 @@ details summary{cursor:pointer;font-weight:600}
 .set label{display:flex;flex-direction:column;gap:4px;font-size:.88rem;color:var(--muted)}
 .note{font-size:.82rem;color:var(--muted)}
 .err{border-left:5px solid var(--bad)}
+.clock{font-size:.85rem;color:var(--muted);font-variant-numeric:tabular-nums}
+.times{display:flex;flex-wrap:wrap;gap:8px;margin:8px 0}
+.chip{display:inline-flex;align-items:center;gap:6px;background:var(--bg);border:1px solid var(--line);border-radius:99px;padding:4px 6px 4px 12px;font-variant-numeric:tabular-nums;font-weight:600}
+.chip button{border:0;background:transparent;padding:0 6px;color:var(--muted);font-size:1.1rem;line-height:1}
+.chip button:hover{color:var(--bad)}
+.addrow{display:flex;flex-wrap:wrap;gap:8px;align-items:center}
+input[type=time]{background:var(--surface);border:1px solid var(--line);border-radius:8px;padding:7px 10px}
 @media (max-width:480px){.day{grid-template-columns:4.2rem 1fr 3.4rem 4.2rem;font-size:.88rem}.temp{font-size:3.4rem}}
 @media (prefers-reduced-motion:reduce){*{animation:none!important;transition:none!important}}
 </style>
@@ -80,7 +87,7 @@ details summary{cursor:pointer;font-weight:600}
 <body>
 <div class="wrap">
   <div class="bar">
-    <h1>เฝ้าฟ้า</h1>
+    <div><h1>เฝ้าฟ้า</h1><div class="clock" id="clock"></div></div>
     <div class="ctl">
       <select id="prov" aria-label="เลือกจังหวัด"></select>
       <button id="geo" type="button">ใช้ตำแหน่งของฉัน</button>
@@ -114,8 +121,15 @@ details summary{cursor:pointer;font-weight:600}
         <label>โอกาสฝนใน 6 ชม. ตั้งแต่ (%)<input id="c-rain" type="number" min="10" max="100" step="5"></label>
         <label>ดัชนี UV ตั้งแต่<input id="c-uv" type="number" min="1" max="15" step="1"></label>
       </div>
+      <h2 style="margin-top:16px">เวลาแจ้งเตือนประจำวัน (เวลาไทย UTC+7)</h2>
+      <div class="times" id="times" aria-live="polite"></div>
+      <div class="addrow">
+        <input id="t-new" type="time" value="07:00" aria-label="เวลาที่ต้องการเพิ่ม">
+        <button id="t-add" type="button">เพิ่มเวลา</button>
+        <button id="t-default" type="button">ใช้ค่าเริ่มต้น</button>
+      </div>
       <p style="margin:12px 0 8px"><button id="notify" type="button" class="primary">เปิดการแจ้งเตือนบนเบราว์เซอร์</button></p>
-      <p class="note">การแจ้งเตือนทำงานเมื่อเปิดหน้านี้ค้างไว้ในแท็บ (ตรวจสอบทุก 15 นาที) หากต้องการแจ้งเตือนขณะปิดหน้าเว็บ ต้องเพิ่มเซิร์ฟเวอร์ส่ง Push หรือ LINE Notify เข้าไป</p>
+      <p class="note">เมื่อเปิดการแจ้งเตือน เบราว์เซอร์จะส่งสรุปตามเวลาที่ตั้งไว้ด้านบน (ตามเวลาไทยเสมอ ไม่ว่าอุปกรณ์จะตั้งโซนเวลาไว้อย่างไร) และเตือนทันทีเมื่อค่าเกินเกณฑ์ ใช้ได้เฉพาะเมื่อเปิดหน้านี้ค้างไว้ในแท็บ หากต้องการเตือนขณะปิดหน้าเว็บ ให้ใช้ Telegram ตามที่ตั้งไว้ใน GitHub Actions</p>
     </details>
   </section>
 
@@ -132,7 +146,10 @@ const store={
 };
 let prov=store.get("prov","นครพนม");
 if(!PROVS.some(p=>p[0]===prov))prov="นครพนม";
-const cfg=Object.assign({pm:37.5,heat:38,rain:60,uv:8,notify:false},store.get("cfg",{}));
+const DEFAULT_TIMES=["05:00","11:00","15:00","18:00","21:00"];
+const cfg=Object.assign({pm:37.5,heat:38,rain:60,uv:8,notify:false,times:DEFAULT_TIMES.slice()},store.get("cfg",{}));
+if(!Array.isArray(cfg.times))cfg.times=DEFAULT_TIMES.slice();
+let last={w:null,a:null,alerts:[]};
 let timer=null;
 
 /* ---------- helpers ---------- */
@@ -141,6 +158,8 @@ const WX={0:"ท้องฟ้าแจ่มใส",1:"แจ่มใสเ�
   61:"ฝนเล็กน้อย",63:"ฝนปานกลาง",65:"ฝนหนัก",66:"ฝนเยือกแข็ง",67:"ฝนเยือกแข็ง",
   80:"ฝนตกเป็นช่วง",81:"ฝนตกเป็นช่วง",82:"ฝนตกหนักเป็นช่วง",95:"พายุฟ้าคะนอง",96:"พายุฟ้าคะนองลูกเห็บ",99:"พายุฟ้าคะนองลูกเห็บ"};
 const wx=c=>WX[c]||"ไม่ทราบสภาพอากาศ";
+const bkk=()=>{const p=Object.fromEntries(new Intl.DateTimeFormat("en-GB",{timeZone:"Asia/Bangkok",year:"numeric",month:"2-digit",day:"2-digit",hour:"2-digit",minute:"2-digit",second:"2-digit",hourCycle:"h23"}).formatToParts(new Date()).map(x=>[x.type,x.value]));
+  return{date:`${p.year}-${p.month}-${p.day}`,hm:`${p.hour}:${p.minute}`,hms:`${p.hour}:${p.minute}:${p.second}`}};
 const f0=v=>v==null?"–":Math.round(v);
 const f1=v=>v==null?"–":(Math.round(v*10)/10).toString();
 const hh=t=>t.slice(11,16);
@@ -279,8 +298,9 @@ async function refresh(){
     else $("#hero").innerHTML=`<div class="sub">โหลดข้อมูลสภาพอากาศไม่สำเร็จ</div>`;
     renderMetrics(w,a);
     const list=computeAlerts(w,a);
+    last={w,a,alerts:list};
     renderAlerts(list,true);notifyAlerts(list);
-    $("#foot").textContent=`ข้อมูลจาก Open-Meteo (พยากรณ์อากาศและแบบจำลองคุณภาพอากาศ CAMS) ค่า PM2.5 เป็นค่าประมาณจากแบบจำลอง ไม่ใช่เครื่องตรวจวัดจริง ควรเทียบกับ Air4Thai หรือ AirBKK ก่อนตัดสินใจ · อัปเดตล่าสุด ${new Date().toLocaleTimeString("th-TH",{hour:"2-digit",minute:"2-digit"})} น.`;
+    $("#foot").textContent=`ข้อมูลจาก Open-Meteo (พยากรณ์อากาศและแบบจำลองคุณภาพอากาศ CAMS) ค่า PM2.5 เป็นค่าประมาณจากแบบจำลอง ไม่ใช่เครื่องตรวจวัดจริง ควรเทียบกับ Air4Thai หรือ AirBKK ก่อนตัดสินใจ · อัปเดตล่าสุด ${bkk().hm} น. (เวลาไทย)`;
   }catch(e){
     $("#alerts").innerHTML=`<div class="alert err bad"><b>เชื่อมต่อข้อมูลไม่ได้</b>ตรวจสอบอินเทอร์เน็ตแล้วกดรีเฟรช</div>`;
     $("#foot").textContent="";
@@ -322,6 +342,49 @@ $("#notify").addEventListener("click",async()=>{
   store.set("cfg",cfg);syncNotifyBtn();refresh();
 });
 syncNotifyBtn();
+
+/* ---------- เวลาแจ้งเตือนประจำวัน (เวลาไทย) ---------- */
+function renderTimes(){
+  cfg.times=[...new Set(cfg.times)].sort();
+  $("#times").innerHTML=cfg.times.length?cfg.times.map(t=>`<span class="chip">${t} น.<button type="button" data-t="${t}" aria-label="ลบเวลา ${t}">×</button></span>`).join(""):'<span class="note">ยังไม่ได้ตั้งเวลา</span>';
+}
+$("#times").addEventListener("click",e=>{const t=e.target.dataset&&e.target.dataset.t;if(t){cfg.times=cfg.times.filter(x=>x!==t);store.set("cfg",cfg);renderTimes()}});
+$("#t-add").addEventListener("click",()=>{const v=$("#t-new").value;if(/^\d\d:\d\d$/.test(v)){cfg.times.push(v);store.set("cfg",cfg);renderTimes()}});
+$("#t-default").addEventListener("click",()=>{cfg.times=DEFAULT_TIMES.slice();store.set("cfg",cfg);renderTimes()});
+renderTimes();
+
+function summaryText(){
+  if(!last.w&&!last.a)return"ยังไม่มีข้อมูล";
+  const p=[];
+  if(last.w){const c=last.w.current;p.push(`${f0(c.temperature_2m)}°C (รู้สึก ${f0(c.apparent_temperature)}°C) ${wx(c.weather_code)}`);
+    const i=Math.max(0,last.w.hourly.time.indexOf(c.time.slice(0,13)+":00"));
+    p.push(`ฝนใน 6 ชม. ${f0(Math.max(...last.w.hourly.precipitation_probability.slice(i,i+6)))}%`)}
+  if(last.a&&last.a.current)p.push(`PM2.5 ${f1(last.a.current.pm2_5)} µg/m³ (${PM_LV[pmLevel(last.a.current.pm2_5)].label})`);
+  if(last.w)p.push(`UV สูงสุด ${f0(last.w.daily.uv_index_max[0])}`);
+  let t=p.join(" · ");
+  if(last.alerts.length)t+="\n⚠ "+last.alerts.map(a=>a.title).join("\n⚠ ");
+  return t;
+}
+async function checkSchedule(){
+  const n=bkk();$("#clock").textContent=`เวลาไทย ${n.hms} น.`;
+  if(!cfg.notify||!("Notification" in window)||Notification.permission!=="granted")return;
+  const fired=store.get("fired",{});
+  for(const t of cfg.times){
+    const key=n.date+" "+t;
+    if(fired[key])continue;
+    // ส่งเมื่อถึงเวลา และยังไม่เกิน 10 นาที (กรณีเปิดหน้าช้าหรือแท็บถูกพัก)
+    const diff=(parseInt(n.hm)*60+parseInt(n.hm.slice(3)))-(parseInt(t)*60+parseInt(t.slice(3)));
+    if(diff>=0&&diff<=10){
+      fired[key]=1;
+      for(const k of Object.keys(fired))if(!k.startsWith(n.date))delete fired[k];
+      store.set("fired",fired);
+      await refresh();
+      try{new Notification(`${prov} · ${t} น.`,{body:summaryText(),tag:"sched-"+t})}catch(e){}
+    }
+  }
+}
+checkSchedule();
+setInterval(checkSchedule,20*1000);
 refresh();
 timer=setInterval(refresh,15*60*1000);
 document.addEventListener("visibilitychange",()=>{if(!document.hidden)refresh()});
