@@ -179,6 +179,15 @@ def uv_label(v):
     return next(l[1] for l in UV_LEVELS if v < l[0])
 
 
+def hum_label(h):
+    if h is None:
+        return ""
+    for limit, text in ((30, "แห้งมาก 🏜️"), (40, "ค่อนข้างแห้ง 🙂"), (61, "กำลังสบาย 😊"), (71, "เริ่มชื้น 😅"), (86, "ชื้นอบอ้าว 🥵")):
+        if h < limit:
+            return text
+    return "ชื้นมาก 💦"
+
+
 def r0(v):
     return "–" if v is None else str(round(v))
 
@@ -193,7 +202,7 @@ def build(w, a, st=None):
         h = w["hourly"]
         idx = h["time"].index(c["time"][:13] + ":00") if c["time"][:13] + ":00" in h["time"] else 0
         lines.append(f"🌡 <b>{r0(c['temperature_2m'])}°C</b> (รู้สึก {r0(c['apparent_temperature'])}°C) · {WX.get(c['weather_code'], '–')}")
-        lines.append(f"💧 ความชื้น {r0(c['relative_humidity_2m'])}% · 🌬 ลม {r0(c['wind_speed_10m'])} กม./ชม.")
+        lines.append(f"💧 ความชื้น {r0(c['relative_humidity_2m'])}% ({hum_label(c['relative_humidity_2m'])}) · 🌬 ลม {r0(c['wind_speed_10m'])} กม./ชม.")
     else:
         idx = 0
         lines.append("⚠️ ดึงข้อมูลสภาพอากาศไม่สำเร็จ")

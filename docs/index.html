@@ -339,6 +339,12 @@ const PM_LV=[
 const pmLevel=v=>PM_LV.findIndex(l=>v<=l.max);
 const UV_LV=[[3,"ต่ำ"],[6,"ปานกลาง"],[8,"สูง"],[11,"สูงมาก"],[99,"อันตราย"]];
 const uvInfo=v=>{for(const l of UV_LV){if(v<l[0])return l}return UV_LV[4]};
+/* ระดับความสบายตามความชื้นสัมพัทธ์ */
+function humLv(h){
+  if(h==null||isNaN(h))return["",""];
+  if(h<30)return["แห้งมาก","🏜️"];if(h<40)return["ค่อนข้างแห้ง","🙂"];if(h<=60)return["กำลังสบาย","😊"];
+  if(h<=70)return["เริ่มชื้น","😅"];if(h<=85)return["ชื้นอบอ้าว","🥵"];return["ชื้นมาก","💦"];
+}
 const DIRS=["เหนือ","ตะวันออกเฉียงเหนือ","ตะวันออก","ตะวันออกเฉียงใต้","ใต้","ตะวันตกเฉียงใต้","ตะวันตก","ตะวันตกเฉียงเหนือ"];
 const dirName=d=>DIRS[Math.round(((d%360)+360)%360/45)%8];
 function dist(a,b,c,d){const R=6371,r=x=>x*Math.PI/180,dx=r(c-a),dy=r(d-b);
@@ -468,7 +474,7 @@ function renderHero(w,a){
       <p class="say">${summarySentence(w,a)}</p>
     </div>
     <div class="facts">
-      <div class="fact"><span>รู้สึกเหมือน</span><b>${f0(c.apparent_temperature)}°</b><em>ชื้น ${f0(c.relative_humidity_2m)}%</em></div>
+      <div class="fact"><span>รู้สึกเหมือน</span><b>${f0(c.apparent_temperature)}°</b><em>ชื้น ${f0(c.relative_humidity_2m)}% ${humLv(c.relative_humidity_2m).join(" ")}</em></div>
       <div class="fact"><span>ฝนใน 6 ชม.</span><b>${f0(pr6)}%</b><em>${pr6>=50?"พกร่ม":"ยังไม่ชัดเจน"}</em></div>
       <div class="fact"><span>PM2.5</span><b>${pmv!=null?f0(pmv):"–"}</b><em>${L?L.label:"ไม่มีข้อมูล"}</em></div>
     </div>
@@ -571,6 +577,7 @@ function renderMinis(w){
     <div class="note" style="text-align:center">จากทิศ${wd!=null?dirName(wd):"–"} กระโชก ${f0(c.wind_gusts_10m)}</div>`;
   // ความชื้น
   $("#humid").innerHTML=`<h2>ความชื้นและบรรยากาศ</h2><div class="num" style="font-size:2.2rem;line-height:1.1">${f0(c.relative_humidity_2m)}<small style="font-size:.9rem;font-weight:500;color:var(--muted)">%</small></div>
+    <div style="margin-top:4px;font-weight:500">${humLv(c.relative_humidity_2m).reverse().join(" ")}</div>
     <div style="margin-top:8px"><div class="kv"><span>เมฆปกคลุม</span><b>${f0(c.cloud_cover)}%</b></div><div class="kv"><span>ความกดอากาศ</span><b>${f0(c.pressure_msl)} hPa</b></div><div class="kv"><span>ฝนตอนนี้</span><b>${f1(c.precipitation)} มม.</b></div><div class="kv"><span>ฝนรวมวันนี้</span><b>${f1(w.daily.precipitation_sum[di])} มม.</b></div></div>`;
   $("#minis").hidden=false;
 }
