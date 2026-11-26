@@ -1,5 +1,5 @@
 /* เก็บตัวแอปไว้ในเครื่อง เปิดได้แม้ออฟไลน์ (ข้อมูลอากาศล่าสุดเก็บใน localStorage ของตัวหน้าเว็บ) */
-const V = "fafa-v1";
+const V = "fafa-v2";
 const SHELL = ["./", "./index.html", "./manifest.webmanifest", "./icons/icon-192.png", "./icons/icon-512.png", "./icons/icon.svg"];
 
 self.addEventListener("install", e => {
@@ -16,6 +16,11 @@ self.addEventListener("fetch", e => {
   const font = url.hostname === "fonts.googleapis.com" || url.hostname === "fonts.gstatic.com";
   if (!sameOrigin && !font) return; // ข้อมูลอากาศ/คุณภาพอากาศดึงสดเสมอ
   if (sameOrigin && url.pathname.includes("/data/")) return;
+  if (req.mode === "navigate") { // หน้าเว็บ: เอาเวอร์ชันล่าสุดจากเครือข่ายก่อน ถ้าออฟไลน์ใช้ที่เก็บไว้
+    e.respondWith(fetch(req).then(r => { const copy = r.clone(); caches.open(V).then(c => c.put("./index.html", copy)); return r })
+      .catch(() => caches.match("./index.html").then(r => r || Response.error())));
+    return;
+  }
   e.respondWith(
     caches.open(V).then(async c => {
       const hit = await c.match(req, { ignoreSearch: true });

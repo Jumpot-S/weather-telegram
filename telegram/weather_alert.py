@@ -127,6 +127,13 @@ def fetch_air4thai():
     return None
 
 
+def fresh(st):
+    if st and st.get("age") is not None and st["age"] > 24:
+        print(f"ข้อมูลสถานี {st['id']} เก่าเกิน 24 ชม. ใช้ค่าแบบจำลองแทน", file=sys.stderr)
+        return None
+    return st
+
+
 def pick_station(stations):
     if not stations:
         return None
@@ -142,17 +149,26 @@ def pick_station(stations):
     if STATION_ID:
         for s, d in ok:
             if s.get("stationID") == STATION_ID:
-                return build_station(s, d)
+                return fresh(build_station(s, d))
         print(f"ไม่พบข้อมูลสถานี {STATION_ID} ใน Air4Thai ตอนนี้", file=sys.stderr)
     near = sorted((x for x in ok if x[1] <= 30), key=lambda x: x[1])
-    return build_station(*near[0]) if near and not STATION_ID else None
+    return fresh(build_station(*near[0])) if near and not STATION_ID else None
+
+
+def age_hours(date, time_):
+    try:
+        t = datetime.strptime(f"{date} {time_}", "%Y-%m-%d %H:%M").replace(tzinfo=BKK)
+    except ValueError:
+        return None
+    return (datetime.now(BKK) - t).total_seconds() / 3600
 
 
 def build_station(s, d):
     L = s["AQILast"]
     return {"id": s.get("stationID"), "area": s.get("areaTH") or s.get("nameTH") or "",
             "pm25": num(L["PM25"]["value"]), "pm10": num((L.get("PM10") or {}).get("value")),
-            "aqi": num((L.get("AQI") or {}).get("aqi")), "date": L.get("date", ""), "time": L.get("time", ""), "km": d}
+            "aqi": num((L.get("AQI") or {}).get("aqi")), "date": L.get("date", ""), "time": L.get("time", ""), "km": d,
+            "age": age_hours(L.get("date", ""), L.get("time", ""))}
 
 
 def pm_level(v):
@@ -191,6 +207,8 @@ def build(w, a, st=None):
             extra = f" · AQI {r0(st['aqi'])}" if st.get("aqi") is not None else ""
             lines.append(f"{ico} <b>PM2.5 {v:.1f} µg/m³</b> เฉลี่ย 24 ชม. · {label}{extra}")
             lines.append(f"📍 สถานี {html.escape(st['area'])} ({html.escape(st['date'])} {html.escape(st['time'])} น.)")
+            if st.get("age") is not None and st["age"] > 6:
+                lines.append(f"⚠️ ข้อมูลสถานีล่าช้าประมาณ {st['age']:.0f} ชั่วโมง")
         else:
             lines.append(f"{ico} <b>PM2.5 {v:.1f} µg/m³</b> · {label} <i>(แบบจำลอง)</i>")
         if v > TH_PM:

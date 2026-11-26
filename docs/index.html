@@ -353,35 +353,50 @@ const j=r=>{if(!r.ok)throw new Error(r.status);return r.json()};
 const tmo=ms=>(typeof AbortSignal!=="undefined"&&AbortSignal.timeout)?{signal:AbortSignal.timeout(ms)}:{};
 const num=v=>{const n=parseFloat(v);return isFinite(n)&&n>=0?n:null};
 async function loadA4T(){
-  for(const u of [A4T_URL,A4T_SNAP]){
-    try{const d=await fetch(u,tmo(9000)).then(j);if(d&&Array.isArray(d.stations)&&d.stations.length)return d.stations}catch(e){}
-  }
-  return null;
+  const get=u=>fetch(u,tmo(7000)).then(j).then(d=>d&&Array.isArray(d.stations)&&d.stations.length?d.stations:null).catch(()=>null);
+  const [direct,snap]=await Promise.all([get(A4T_URL),get(A4T_SNAP)]); /* ดึงพร้อมกัน ใช้ค่าตรงก่อน ถ้าไม่ได้ใช้ไฟล์สำรอง */
+  return direct||snap;
 }
+const PROV_ALIAS={"อยุธยา":"พระนครศรีอยุธยา","กาฬสินธ์ุ":"กาฬสินธุ์","ประจวบคิรีขันธ์":"ประจวบคีรีขันธ์"};
 function provOfArea(area){
-  if(!area)return"";let s=String(area).split(",").pop().trim().replace(/^(จ\.|จังหวัด)\s*/,"");
-  if(s.includes("กรุงเทพ"))return"กรุงเทพมหานคร";if(s==="อยุธยา")return"พระนครศรีอยุธยา";return s;
+  if(!area)return"";
+  const parts=String(area).trim().split(",");
+  const s=parts.pop().trim().replace(/^(จ\.|จังหวัด)\s*/,"");
+  if(!parts.length&&/(เขต|แขวง)/.test(s))return"กรุงเทพมหานคร"; /* สถานีในสวนสาธารณะของ กทม. ไม่มีชื่อจังหวัดต่อท้าย */
+  if(s.includes("กรุงเทพ"))return"กรุงเทพมหานคร";
+  return PROV_ALIAS[s]||s;
 }
-function pickStation(list,name,lat,lon){
-  if(!list)return null;
-  const ok=list.filter(s=>s&&s.AQILast&&s.AQILast.PM25&&num(s.AQILast.PM25.value)!=null&&isFinite(parseFloat(s.lat))&&isFinite(parseFloat(s.long)));
+function ageHours(date,time){
+  if(!date||!time)return null;
+  const t=Date.parse(`${date}T${time}:00+07:00`);
+  return isFinite(t)?(Date.now()-t)/36e5:null;
+}
+const esc=x=>String(x).replace(/[&<>"]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
+/* สถานีที่ใช้ได้ในจังหวัด (ไม่มีก็ใช้สถานีใกล้ ๆ ภายใน 40 กม.) เรียงจากใกล้ไปไกล ตัดสถานีที่ข้อมูลเก่าเกิน 24 ชม. */
+function stationCands(list,name,lat,lon){
+  if(!list)return[];
+  const ok=list.filter(s=>{
+    if(!(s&&s.AQILast&&s.AQILast.PM25&&num(s.AQILast.PM25.value)!=null&&isFinite(parseFloat(s.lat))&&isFinite(parseFloat(s.long))))return false;
+    const h=ageHours(s.AQILast.date,s.AQILast.time);return h==null||h<=24;
+  });
   const d=s=>dist(lat,lon,parseFloat(s.lat),parseFloat(s.long));
-  const inProv=ok.filter(s=>provOfArea(s.areaTH)===name).sort((x,y)=>d(x)-d(y));
-  let pick=inProv[0];
-  if(!pick){const near=ok.map(s=>[s,d(s)]).filter(x=>x[1]<=40).sort((x,y)=>x[1]-y[1])[0];pick=near&&near[0]}
-  return pick?{s:pick,km:d(pick)}:null;
+  let c=ok.filter(s=>provOfArea(s.areaTH)===name);
+  if(!c.length)c=ok.filter(s=>d(s)<=40);
+  return c.map(s=>({s,km:d(s)})).sort((x,y)=>x.km-y.km).slice(0,15);
 }
 /* ใช้ค่า PM2.5 จากสถานีวัดจริง (เฉลี่ย 24 ชม. ตรงกับเกณฑ์ของกรมควบคุมมลพิษ) แทนค่าแบบจำลอง */
-function applyStation(a,pick){
+function applyStation(a,pick,cands){
   if(!pick)return a;
   const L=pick.s.AQILast,cur=Object.assign({},a&&a.current),model=cur.pm2_5;
   cur.pm2_5=num(L.PM25.value);
   const p10=L.PM10?num(L.PM10.value):null;if(p10!=null)cur.pm10=p10;
-  return Object.assign({},a||{},{current:cur,station:{id:pick.s.stationID,area:pick.s.areaTH||pick.s.nameTH||"",date:L.date,time:L.time,km:pick.km,model,aqi:L.AQI?num(L.AQI.aqi):null}});
+  return Object.assign({},a||{},{current:cur,station:{id:pick.s.stationID,area:pick.s.areaTH||pick.s.nameTH||"",date:L.date,time:L.time,km:pick.km,model,aqi:L.AQI?num(L.AQI.aqi):null,age:ageHours(L.date,L.time),
+    opts:(cands||[]).map(c=>({id:c.s.stationID,label:`${c.s.nameTH||c.s.areaTH||c.s.stationID} (${f0(c.km)} กม.)`}))}});
 }
 function rankFromStations(list){
   const by={};
   for(const s of list||[]){const v=s&&s.AQILast&&s.AQILast.PM25?num(s.AQILast.PM25.value):null;if(v==null)continue;
+    const h=ageHours(s.AQILast.date,s.AQILast.time);if(h!=null&&h>24)continue;
     const p=provOfArea(s.areaTH);if(!PROVS.some(x=>x[0]===p))continue;(by[p]=by[p]||[]).push(v)}
   return Object.entries(by).map(([name,a])=>({name,v:a.reduce((x,y)=>x+y,0)/a.length}));
 }
@@ -494,7 +509,10 @@ function renderAir(w,a){
   const st=a.station;
   $("#aqmeta").innerHTML=`<span class="pill" style="--c:${L.c};align-self:flex-start">${L.label}</span><div>${L.tip}</div>
     <div class="note">${st&&st.aqi!=null?`AQI ไทย ${f0(st.aqi)} · `:""}PM10 ${f1(a.current.pm10)} µg/m³${!st&&a.current.us_aqi!=null?` · US AQI ${f0(a.current.us_aqi)}`:""}</div>
-    ${st?`<div class="note">ค่าเฉลี่ย 24 ชม. จากสถานีวัด ${st.area} (ห่าง ${f0(st.km)} กม.)${st.model!=null?` · แบบจำลองชั่วโมงนี้ ${f1(st.model)}`:""}</div>`:'<div class="note">ค่ารายชั่วโมงจากแบบจำลอง ไม่ใช่เครื่องวัดจริง</div>'}`;
+    ${st?`<div class="note">ค่าเฉลี่ย 24 ชม. จากสถานีวัด ${esc(st.area)} (ห่าง ${f0(st.km)} กม.)${st.model!=null?` · แบบจำลองชั่วโมงนี้ ${f1(st.model)}`:""}</div>`:'<div class="note">ค่ารายชั่วโมงจากแบบจำลอง ไม่ใช่เครื่องวัดจริง</div>'}
+    ${st&&st.km>40?`<div class="note" style="color:var(--warn)">สถานีนี้อยู่ไกลจากกลางจังหวัดที่เลือก ค่าอาจต่างจากพื้นที่ของคุณ</div>`:""}
+    ${st&&st.age!=null&&st.age>6?`<div class="note" style="color:var(--warn)">ข้อมูลสถานีนี้ล่าช้าประมาณ ${f0(st.age)} ชั่วโมง</div>`:""}
+    ${st&&st.opts&&st.opts.length>1?`<label class="note" style="display:flex;flex-direction:column;gap:4px">เปลี่ยนสถานีวัด<select id="stn" aria-label="เลือกสถานีตรวจวัด">${st.opts.map(o=>`<option value="${esc(o.id)}"${o.id===st.id?" selected":""}>${esc(o.label)}</option>`).join("")}</select></label>`:""}`;
   $("#aqsrc").textContent=st?`Air4Thai ${st.date||""} ${st.time||""} น.`:"แบบจำลอง CAMS";
   // แนวโน้ม 24 ชม.
   const H=a.hourly||{time:[],pm2_5:[]},now=w?w.current.time.slice(0,13)+":00":null;let i=now?H.time.indexOf(now):0;if(i<0)i=0;
@@ -581,6 +599,13 @@ function renderAlerts(list){
     :`<div class="alert ok"><i></i><div><b>ไม่มีการแจ้งเตือนในตอนนี้</b>ค่าต่างๆ อยู่ในเกณฑ์ที่คุณตั้งไว้</div></div>`;
 }
 
+let raw=null;
+function render(r){
+  const p=PROVS.find(x=>x[0]===prov),cands=stationCands(r.stations,prov,p[1],p[2]),pref=store.get("stn:"+prov,null);
+  const pick=cands.find(c=>c.s.stationID===pref)||cands[0]||null;
+  const a=applyStation(r.a,pick,cands);
+  return{a,list:paint(r.w,a)};
+}
 function paint(w,a){
   if(w){renderHero(w,a);renderHourly(w);renderAdvice(w,a);renderMinis(w);renderDays(w)}
   else $("#hero").innerHTML='<div>โหลดข้อมูลสภาพอากาศไม่สำเร็จ ลองรีเฟรชอีกครั้ง</div>';
@@ -597,9 +622,8 @@ async function refresh(){
   try{
     const r=await load();
     if(!r.w&&!r.a)throw new Error("offline");
-    const p=PROVS.find(x=>x[0]===prov),pick=pickStation(r.stations,prov,p[1],p[2]);
-    const a=applyStation(r.a,pick);
-    const list=paint(r.w,a);
+    raw=r;
+    const {a,list}=render(r);
     notifyAlerts(list);
     try{store.set("cache:"+prov,{w:r.w,a,ts:Date.now()})}catch(e){}
     $("#foot").textContent=(a&&a.station?"PM2.5 จากสถานีตรวจวัดของกรมควบคุมมลพิษ (Air4Thai) ส่วนสภาพอากาศและแนวโน้มจาก Open-Meteo":"ข้อมูลจาก Open-Meteo ค่า PM2.5 เป็นค่าประมาณจากแบบจำลอง CAMS ไม่ใช่เครื่องตรวจวัดจริง ควรเทียบกับ Air4Thai หรือ AirBKK ก่อนตัดสินใจ")+` อัปเดตล่าสุด ${bkk().hm} น. (เวลาไทย)`;
@@ -633,6 +657,9 @@ $("#geo").addEventListener("click",()=>{
     for(const p of PROVS){const d=dist(pos.coords.latitude,pos.coords.longitude,p[1],p[2]);if(d<bd){bd=d;best=p}}
     prov=best[0];sel.value=prov;store.set("prov",prov);refresh();
   },()=>{$("#foot").textContent="ไม่ได้รับอนุญาตให้ใช้ตำแหน่ง เลือกจังหวัดจากรายการแทนได้"},{timeout:10000});
+});
+document.addEventListener("change",e=>{
+  if(e.target&&e.target.id==="stn"&&raw){store.set("stn:"+prov,e.target.value);render(raw)}
 });
 $("#theme").addEventListener("click",()=>{
   const root=document.documentElement,cur=root.getAttribute("data-theme")||(matchMedia("(prefers-color-scheme: dark)").matches?"dark":"light");
