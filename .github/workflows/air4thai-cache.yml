@@ -1,0 +1,34 @@
+name: air4thai-cache
+
+# ดึงค่าจากสถานีตรวจวัด Air4Thai ทุก 30 นาที เก็บไว้ที่สาขา data (ไฟล์เดียว ไม่สะสมประวัติ)
+# ให้หน้าเว็บใช้เป็นตัวสำรองเมื่อเบราว์เซอร์ดึงจาก Air4Thai ตรงไม่ได้
+on:
+  schedule:
+    - cron: "7,37 * * * *"
+  workflow_dispatch: {}
+
+permissions:
+  contents: write
+
+concurrency:
+  group: air4thai-cache
+  cancel-in-progress: false
+
+jobs:
+  snapshot:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - name: Fetch Air4Thai
+        run: python3 scripts/air4thai_snapshot.py "$RUNNER_TEMP/air4thai.json"
+      - name: Publish to data branch
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git checkout --orphan data-snapshot
+          git rm -rf . --quiet
+          cp "$RUNNER_TEMP/air4thai.json" air4thai.json
+          git add air4thai.json
+          git commit -q -m "Air4Thai snapshot $(date -u +%Y-%m-%dT%H:%MZ)"
+          git push -f origin HEAD:data

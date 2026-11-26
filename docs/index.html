@@ -4,6 +4,12 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
 <meta name="theme-color" content="#0b6fb3">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="icon" href="icons/icon.svg" type="image/svg+xml">
+<link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="เฝ้าฟ้า">
 <title>เฝ้าฟ้า</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -192,6 +198,7 @@ details summary{cursor:pointer;font-family:var(--display);font-weight:600}
       <select id="prov" aria-label="เลือกจังหวัด"></select>
       <button id="geo" type="button" class="btn icon-btn" aria-label="ใช้ตำแหน่งของฉัน" title="ใช้ตำแหน่งของฉัน"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3"/><circle cx="12" cy="12" r="8"/></svg></button>
       <button id="refresh" type="button" class="btn icon-btn" aria-label="รีเฟรช" title="รีเฟรช"><svg viewBox="0 0 24 24"><path d="M20 11a8 8 0 1 0-2.3 5.7"/><path d="M20 4v7h-7"/></svg></button>
+      <button id="install" type="button" class="btn primary" hidden>ติดตั้งแอป</button>
       <button id="theme" type="button" class="btn icon-btn" aria-label="สลับโหมดสว่าง/มืด" title="สลับโหมดสว่าง/มืด"><svg viewBox="0 0 24 24"><path d="M20 14.5A8 8 0 0 1 9.5 4 8 8 0 1 0 20 14.5z"/></svg></button>
     </div>
   </header>
@@ -237,6 +244,7 @@ details summary{cursor:pointer;font-family:var(--display);font-weight:600}
   <section class="card" id="rankcard" hidden>
     <h2>PM2.5 ทั่วประเทศตอนนี้ <small id="rankme"></small></h2>
     <div class="rk" id="rank"></div>
+    <p class="note" id="ranksrc" style="margin:10px 0 0"></p>
   </section>
 
   <section class="card">
@@ -255,6 +263,9 @@ details summary{cursor:pointer;font-family:var(--display);font-weight:600}
         <button id="t-add" type="button" class="btn">เพิ่มเวลา</button>
         <button id="t-default" type="button" class="btn">ใช้ค่าเริ่มต้น</button>
       </div>
+      <h3 style="margin-top:18px;font-family:var(--display);font-size:.95rem">ติดตั้งเป็นแอป</h3>
+      <p class="note" style="margin:6px 0 8px">Android, Chrome, Edge: กดปุ่มติดตั้ง หรือเมนู ⋮ แล้วเลือก "ติดตั้งแอป" ส่วน iPhone: เปิดใน Safari กดปุ่มแชร์ แล้วเลือก "เพิ่มไปยังหน้าจอโฮม" เมื่อติดตั้งแล้วเปิดได้เต็มจอเหมือนแอป และเปิดดูข้อมูลล่าสุดได้แม้ไม่มีอินเทอร์เน็ต</p>
+      <p style="margin:0 0 8px"><button id="install2" type="button" class="btn" hidden>ติดตั้งแอปนี้</button></p>
       <p style="margin:14px 0 8px"><button id="notify" type="button" class="btn primary">เปิดการแจ้งเตือนบนเบราว์เซอร์</button></p>
       <p class="note">เบราว์เซอร์จะส่งสรุปตามเวลาที่ตั้งไว้ (ตามเวลาไทยเสมอ) และเตือนทันทีเมื่อค่าเกินเกณฑ์ ใช้ได้เฉพาะเมื่อเปิดหน้านี้ค้างไว้ในแท็บ หากต้องการเตือนขณะปิดหน้า ให้ใช้ Telegram ที่ตั้งไว้ใน GitHub Actions</p>
     </details>
@@ -336,15 +347,52 @@ const idxNow=w=>{const i=w.hourly.time.indexOf(w.current.time.slice(0,13)+":00")
 function isDayAt(w,t){const di=w.daily.time.indexOf(t.slice(0,10));if(di<0)return true;return t>=w.daily.sunrise[di].slice(0,16)&&t<w.daily.sunset[di].slice(0,16)}
 
 /* ---------- data ---------- */
+const A4T_URL="https://air4thai.pcd.go.th/services/getNewAQI_JSON.php";
+const A4T_SNAP="https://raw.githubusercontent.com/Jumpot-S/weather-telegram/data/air4thai.json"; /* สำรอง: ไฟล์ที่ GitHub Actions ดึงจาก Air4Thai เก็บไว้ */
 const j=r=>{if(!r.ok)throw new Error(r.status);return r.json()};
+const tmo=ms=>(typeof AbortSignal!=="undefined"&&AbortSignal.timeout)?{signal:AbortSignal.timeout(ms)}:{};
+const num=v=>{const n=parseFloat(v);return isFinite(n)&&n>=0?n:null};
+async function loadA4T(){
+  for(const u of [A4T_URL,A4T_SNAP]){
+    try{const d=await fetch(u,tmo(9000)).then(j);if(d&&Array.isArray(d.stations)&&d.stations.length)return d.stations}catch(e){}
+  }
+  return null;
+}
+function provOfArea(area){
+  if(!area)return"";let s=String(area).split(",").pop().trim().replace(/^(จ\.|จังหวัด)\s*/,"");
+  if(s.includes("กรุงเทพ"))return"กรุงเทพมหานคร";if(s==="อยุธยา")return"พระนครศรีอยุธยา";return s;
+}
+function pickStation(list,name,lat,lon){
+  if(!list)return null;
+  const ok=list.filter(s=>s&&s.AQILast&&s.AQILast.PM25&&num(s.AQILast.PM25.value)!=null&&isFinite(parseFloat(s.lat))&&isFinite(parseFloat(s.long)));
+  const d=s=>dist(lat,lon,parseFloat(s.lat),parseFloat(s.long));
+  const inProv=ok.filter(s=>provOfArea(s.areaTH)===name).sort((x,y)=>d(x)-d(y));
+  let pick=inProv[0];
+  if(!pick){const near=ok.map(s=>[s,d(s)]).filter(x=>x[1]<=40).sort((x,y)=>x[1]-y[1])[0];pick=near&&near[0]}
+  return pick?{s:pick,km:d(pick)}:null;
+}
+/* ใช้ค่า PM2.5 จากสถานีวัดจริง (เฉลี่ย 24 ชม. ตรงกับเกณฑ์ของกรมควบคุมมลพิษ) แทนค่าแบบจำลอง */
+function applyStation(a,pick){
+  if(!pick)return a;
+  const L=pick.s.AQILast,cur=Object.assign({},a&&a.current),model=cur.pm2_5;
+  cur.pm2_5=num(L.PM25.value);
+  const p10=L.PM10?num(L.PM10.value):null;if(p10!=null)cur.pm10=p10;
+  return Object.assign({},a||{},{current:cur,station:{id:pick.s.stationID,area:pick.s.areaTH||pick.s.nameTH||"",date:L.date,time:L.time,km:pick.km,model,aqi:L.AQI?num(L.AQI.aqi):null}});
+}
+function rankFromStations(list){
+  const by={};
+  for(const s of list||[]){const v=s&&s.AQILast&&s.AQILast.PM25?num(s.AQILast.PM25.value):null;if(v==null)continue;
+    const p=provOfArea(s.areaTH);if(!PROVS.some(x=>x[0]===p))continue;(by[p]=by[p]||[]).push(v)}
+  return Object.entries(by).map(([name,a])=>({name,v:a.reduce((x,y)=>x+y,0)/a.length}));
+}
 async function load(){
   const p=PROVS.find(x=>x[0]===prov);
   const q=`latitude=${p[1]}&longitude=${p[2]}&timezone=Asia%2FBangkok`;
   const wUrl=`https://api.open-meteo.com/v1/forecast?${q}&current=temperature_2m,apparent_temperature,relative_humidity_2m,precipitation,weather_code,wind_speed_10m,wind_direction_10m,wind_gusts_10m,pressure_msl,cloud_cover`
     +`&hourly=temperature_2m,apparent_temperature,precipitation_probability,uv_index,weather_code&daily=weather_code,temperature_2m_max,temperature_2m_min,precipitation_probability_max,precipitation_sum,uv_index_max,sunrise,sunset&forecast_days=7`;
   const aUrl=`https://air-quality-api.open-meteo.com/v1/air-quality?${q}&current=pm2_5,pm10,us_aqi&hourly=pm2_5&forecast_days=2`;
-  const [w,a]=await Promise.allSettled([fetch(wUrl).then(j),fetch(aUrl).then(j)]);
-  return{w:w.status==="fulfilled"?w.value:null,a:a.status==="fulfilled"?a.value:null};
+  const [w,a,st]=await Promise.allSettled([fetch(wUrl).then(j),fetch(aUrl).then(j),loadA4T()]);
+  return{w:w.status==="fulfilled"?w.value:null,a:a.status==="fulfilled"?a.value:null,stations:st.status==="fulfilled"?st.value:null};
 }
 async function loadRank(){
   const url=`https://air-quality-api.open-meteo.com/v1/air-quality?latitude=${PROVS.map(p=>p[1]).join(",")}&longitude=${PROVS.map(p=>p[2]).join(",")}&current=pm2_5&timezone=Asia%2FBangkok`;
@@ -441,12 +489,15 @@ function renderAir(w,a){
   for(let k=0;k<5;k++){g+=`<path d="${arc(100,104,82,Math.PI*(1-bounds[k]/cap)-.012,Math.PI*(1-bounds[k+1]/cap)+.012)}" fill="none" stroke="${cols[k]}" stroke-width="13" stroke-linecap="butt"/>`}
   const th=Math.PI*(1-Math.min(v,cap)/cap),nx=100+82*Math.cos(th),ny=104-82*Math.sin(th);
   g+=`<circle cx="${nx.toFixed(1)}" cy="${ny.toFixed(1)}" r="9.5" fill="var(--surface)" stroke="var(--fg)" stroke-width="3"/>`;
-  g+=`<text x="100" y="92" text-anchor="middle" font-size="30" font-weight="600" style="fill:var(--fg)">${f1(v)}</text><text x="100" y="112" text-anchor="middle" font-size="10" style="fill:var(--muted);font-family:var(--font)">µg/m³</text></svg>`;
+  g+=`<text x="100" y="92" text-anchor="middle" font-size="30" font-weight="600" style="fill:var(--fg)">${f1(v)}</text><text x="100" y="112" text-anchor="middle" font-size="10" style="fill:var(--muted);font-family:var(--font)">${a.station?"µg/m³ เฉลี่ย 24 ชม.":"µg/m³"}</text></svg>`;
   $("#gauge").innerHTML=g;
-  $("#aqmeta").innerHTML=`<span class="pill" style="--c:${L.c};align-self:flex-start">${L.label}</span><div>${L.tip}</div><div class="note">PM10 ${f1(a.current.pm10)} µg/m³ · US AQI ${f0(a.current.us_aqi)}</div>`;
-  $("#aqsrc").textContent="ค่าจากแบบจำลอง CAMS";
+  const st=a.station;
+  $("#aqmeta").innerHTML=`<span class="pill" style="--c:${L.c};align-self:flex-start">${L.label}</span><div>${L.tip}</div>
+    <div class="note">${st&&st.aqi!=null?`AQI ไทย ${f0(st.aqi)} · `:""}PM10 ${f1(a.current.pm10)} µg/m³${!st&&a.current.us_aqi!=null?` · US AQI ${f0(a.current.us_aqi)}`:""}</div>
+    ${st?`<div class="note">ค่าเฉลี่ย 24 ชม. จากสถานีวัด ${st.area} (ห่าง ${f0(st.km)} กม.)${st.model!=null?` · แบบจำลองชั่วโมงนี้ ${f1(st.model)}`:""}</div>`:'<div class="note">ค่ารายชั่วโมงจากแบบจำลอง ไม่ใช่เครื่องวัดจริง</div>'}`;
+  $("#aqsrc").textContent=st?`Air4Thai ${st.date||""} ${st.time||""} น.`:"แบบจำลอง CAMS";
   // แนวโน้ม 24 ชม.
-  const H=a.hourly,now=w?w.current.time.slice(0,13)+":00":null;let i=now?H.time.indexOf(now):0;if(i<0)i=0;
+  const H=a.hourly||{time:[],pm2_5:[]},now=w?w.current.time.slice(0,13)+":00":null;let i=now?H.time.indexOf(now):0;if(i<0)i=0;
   const P=H.pm2_5.slice(i,i+24).map(x=>x==null?0:x),X=H.time.slice(i,i+24),n=P.length;
   if(n>3){const W=420,Ht=96,l=6,r=6,t=10,bt=20,pw=W-l-r,ph=Ht-t-bt,mx=Math.max(...P,40),x=k=>l+k*pw/(n-1),y=q=>t+ph-q/mx*ph;
     const pts=P.map((q,k)=>x(k)+","+y(q)),mk=P.indexOf(Math.max(...P));
@@ -454,7 +505,7 @@ function renderAir(w,a){
     s+=`<polygon points="${x(0)},${t+ph} ${pts.join(" ")} ${x(n-1)},${t+ph}" fill="var(--accent)" opacity=".16"/><polyline points="${pts.join(" ")}" fill="none" stroke="var(--accent)" stroke-width="2.2" stroke-linejoin="round"/>`;
     s+=`<circle cx="${x(mk)}" cy="${y(P[mk])}" r="3.5" fill="var(--accent)"/><text x="${Math.min(Math.max(x(mk),30),W-30)}" y="${Math.max(y(P[mk])-7,10)}" text-anchor="middle" style="fill:var(--fg)">${f0(P[mk])}</text>`;
     X.forEach((tm,k)=>{if(k%4===0)s+=`<text x="${x(k)}" y="${Ht-5}" text-anchor="${k===0?"start":"middle"}">${hh(tm)}</text>`});
-    $("#spark").innerHTML=`<div class="note" style="margin-top:10px">แนวโน้ม 24 ชั่วโมงข้างหน้า</div>`+s+"</svg>";
+    $("#spark").innerHTML=`<div class="note" style="margin-top:10px">แนวโน้ม 24 ชั่วโมงข้างหน้า (แบบจำลอง)</div>`+s+"</svg>";
   }
   $("#aqcard").hidden=false;
 }
@@ -514,13 +565,14 @@ function renderDays(w){
       <span class="rng"><span class="lo">${f0(d.temperature_2m_min[i])}°</span><span class="tr"><i style="left:${l}%;width:${wd}%"></i></span><span>${f0(d.temperature_2m_max[i])}°</span></span></div>`}).join("");
   $("#weekcard").hidden=false;
 }
-function renderRank(list){
+function renderRank(list,src){
   if(!list||list.length<5){$("#rankcard").hidden=true;return}
   const s=[...list].sort((a,b)=>b.v-a.v),me=s.findIndex(x=>x.name===prov),mx=Math.max(s[0].v,40);
   const row=(x,r)=>{const L=PM_LV[pmLevel(x.v)];return`<div class="${x.name===prov?"me":""}"><span>${r}. ${x.name}</span><span class="bar"><i style="width:${Math.max(3,x.v/mx*100)}%;--c:${L.c}"></i></span><span class="v">${f1(x.v)}</span></div>`};
   let h=s.slice(0,5).map((x,i)=>row(x,i+1)).join("");
   if(me>=5)h+=`<span class="gap">⋯</span>`+row(s[me],me+1);
   $("#rank").innerHTML=h;
+  $("#ranksrc").textContent=src;
   $("#rankme").textContent=me>=0?`${prov} อยู่อันดับ ${me+1} จาก ${s.length} (1 = สูงสุด)`:"";
   $("#rankcard").hidden=false;
 }
@@ -529,24 +581,42 @@ function renderAlerts(list){
     :`<div class="alert ok"><i></i><div><b>ไม่มีการแจ้งเตือนในตอนนี้</b>ค่าต่างๆ อยู่ในเกณฑ์ที่คุณตั้งไว้</div></div>`;
 }
 
+function paint(w,a){
+  if(w){renderHero(w,a);renderHourly(w);renderAdvice(w,a);renderMinis(w);renderDays(w)}
+  else $("#hero").innerHTML='<div>โหลดข้อมูลสภาพอากาศไม่สำเร็จ ลองรีเฟรชอีกครั้ง</div>';
+  renderAir(w,a);
+  const list=computeAlerts(w,a);
+  last={w,a,alerts:list};
+  renderAlerts(list);
+  return list;
+}
 let busy=false;
 async function refresh(){
   if(busy)return;busy=true;
   $("#foot").textContent="กำลังอัปเดต…";
   try{
-    const {w,a}=await load();
-    if(!w&&!a)throw new Error("offline");
-    if(w){renderHero(w,a);renderHourly(w);renderAdvice(w,a);renderMinis(w);renderDays(w)}
-    else $("#hero").innerHTML='<div>โหลดข้อมูลสภาพอากาศไม่สำเร็จ ลองรีเฟรชอีกครั้ง</div>';
-    renderAir(w,a);
-    const list=computeAlerts(w,a);
-    last={w,a,alerts:list};
-    renderAlerts(list);notifyAlerts(list);
-    $("#foot").textContent=`ข้อมูลจาก Open-Meteo (พยากรณ์อากาศและแบบจำลองคุณภาพอากาศ CAMS) ค่า PM2.5 เป็นค่าประมาณจากแบบจำลอง ไม่ใช่เครื่องตรวจวัดจริง ควรเทียบกับ Air4Thai หรือ AirBKK ก่อนตัดสินใจ อัปเดตล่าสุด ${bkk().hm} น. (เวลาไทย)`;
-    loadRank().then(renderRank).catch(()=>{$("#rankcard").hidden=true});
+    const r=await load();
+    if(!r.w&&!r.a)throw new Error("offline");
+    const p=PROVS.find(x=>x[0]===prov),pick=pickStation(r.stations,prov,p[1],p[2]);
+    const a=applyStation(r.a,pick);
+    const list=paint(r.w,a);
+    notifyAlerts(list);
+    try{store.set("cache:"+prov,{w:r.w,a,ts:Date.now()})}catch(e){}
+    $("#foot").textContent=(a&&a.station?"PM2.5 จากสถานีตรวจวัดของกรมควบคุมมลพิษ (Air4Thai) ส่วนสภาพอากาศและแนวโน้มจาก Open-Meteo":"ข้อมูลจาก Open-Meteo ค่า PM2.5 เป็นค่าประมาณจากแบบจำลอง CAMS ไม่ใช่เครื่องตรวจวัดจริง ควรเทียบกับ Air4Thai หรือ AirBKK ก่อนตัดสินใจ")+` อัปเดตล่าสุด ${bkk().hm} น. (เวลาไทย)`;
+    const rs=rankFromStations(r.stations);
+    if(rs.length>=20)renderRank(rs,"ค่าเฉลี่ยของสถานีตรวจวัดในแต่ละจังหวัด (Air4Thai เฉลี่ย 24 ชม.) แสดงเฉพาะจังหวัดที่มีสถานี");
+    else loadRank().then(x=>renderRank(x,"ค่ารายชั่วโมงจากแบบจำลอง CAMS")).catch(()=>{$("#rankcard").hidden=true});
   }catch(e){
-    $("#alerts").innerHTML=`<div class="alert bad"><i></i><div><b>เชื่อมต่อข้อมูลไม่ได้</b>ตรวจสอบอินเทอร์เน็ตแล้วกดรีเฟรช</div></div>`;
-    $("#foot").textContent="";
+    const c=store.get("cache:"+prov,null);
+    if(c&&(c.w||c.a)){
+      paint(c.w,c.a);
+      const t=new Intl.DateTimeFormat("th-TH",{timeZone:"Asia/Bangkok",day:"numeric",month:"short",hour:"2-digit",minute:"2-digit"}).format(new Date(c.ts));
+      $("#alerts").insertAdjacentHTML("afterbegin",`<div class="alert warn"><i></i><div><b>ออฟไลน์ แสดงข้อมูลล่าสุดเมื่อ ${t} น.</b>เชื่อมต่ออินเทอร์เน็ตแล้วกดรีเฟรชเพื่อดูข้อมูลปัจจุบัน</div></div>`);
+      $("#foot").textContent="";
+    }else{
+      $("#alerts").innerHTML=`<div class="alert bad"><i></i><div><b>เชื่อมต่อข้อมูลไม่ได้</b>ตรวจสอบอินเทอร์เน็ตแล้วกดรีเฟรช</div></div>`;
+      $("#foot").textContent="";
+    }
   }finally{busy=false}
 }
 
@@ -626,6 +696,16 @@ async function checkSchedule(){
 }
 checkSchedule();
 setInterval(checkSchedule,20*1000);
+
+/* ---------- ติดตั้งเป็นแอป ---------- */
+let deferred=null;
+const showInstall=on=>{$("#install").hidden=!on;$("#install2").hidden=!on};
+window.addEventListener("beforeinstallprompt",e=>{e.preventDefault();deferred=e;showInstall(true)});
+window.addEventListener("appinstalled",()=>{deferred=null;showInstall(false)});
+async function doInstall(){if(!deferred)return;deferred.prompt();try{await deferred.userChoice}catch(e){}deferred=null;showInstall(false)}
+$("#install").addEventListener("click",doInstall);$("#install2").addEventListener("click",doInstall);
+if("serviceWorker" in navigator&&(location.protocol==="https:"||location.hostname==="localhost"))navigator.serviceWorker.register("sw.js").catch(()=>{});
+
 refresh();
 setInterval(refresh,15*60*1000);
 document.addEventListener("visibilitychange",()=>{if(!document.hidden)refresh()});

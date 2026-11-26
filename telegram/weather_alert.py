@@ -6,6 +6,7 @@
   PLACE_NAME  ชื่อสถานที่ที่แสดง   (ค่าเริ่มต้น: นครพนม (อ.เมือง))
   LAT, LON    พิกัด               (ค่าเริ่มต้น: 17.4105, 104.7783)
   PM_THRESHOLD, HEAT_THRESHOLD, RAIN_THRESHOLD, UV_THRESHOLD  เกณฑ์แจ้งเตือน
+  STATION_ID  รหัสสถานี Air4Thai (ค่าเริ่มต้น 88t = นครพนม อ.เมือง ถ้าเว้นว่างและเปลี่ยน LAT/LON จะเลือกสถานีที่ใกล้ที่สุดภายใน 30 กม.)
   SEND_TIMES  เวลาส่งตามเวลาไทย คั่นด้วยจุลภาค (ค่าเริ่มต้น: 05:00,11:00,15:00,18:00,21:00)
   DRY_RUN=1   พิมพ์ข้อความแทนการส่งจริง
 
@@ -14,7 +15,9 @@
 """
 import html
 import json
+import math
 import os
+import ssl
 import sys
 import time
 from datetime import datetime, timedelta, timezone
@@ -33,6 +36,8 @@ def env(name, default):
 PLACE = env("PLACE_NAME", "นครพนม (อ.เมือง)")
 LAT = float(env("LAT", "17.4105"))
 LON = float(env("LON", "104.7783"))
+DEFAULT_AREA = env("LAT", "") == "" and env("LON", "") == ""
+STATION_ID = env("STATION_ID", "88t" if DEFAULT_AREA else "")
 TH_PM = float(env("PM_THRESHOLD", "37.5"))
 TH_HEAT = float(env("HEAT_THRESHOLD", "38"))
 TH_RAIN = float(env("RAIN_THRESHOLD", "60"))
@@ -82,6 +87,64 @@ def fetch():
     return w, a
 
 
+A4T = "air4thai.pcd.go.th/services/getNewAQI_JSON.php"
+
+
+def num(v):
+    try:
+        f = float(v)
+    except (TypeError, ValueError):
+        return None
+    return f if f >= 0 else None
+
+
+def km(lat1, lon1, lat2, lon2):
+    r = math.radians
+    a = math.sin(r(lat2 - lat1) / 2) ** 2 + math.cos(r(lat1)) * math.cos(r(lat2)) * math.sin(r(lon2 - lon1) / 2) ** 2
+    return 12742 * math.asin(math.sqrt(a))
+
+
+def fetch_air4thai():
+    """ดึงค่าจากสถานีตรวจวัดจริงของกรมควบคุมมลพิษ ลอง https ก่อน ถ้า TLS ไม่ผ่านจึงลอง http (ข้อมูลสาธารณะ อ่านอย่างเดียว)"""
+    for scheme in ("https", "http"):
+        try:
+            with urlopen(Request(f"{scheme}://{A4T}", headers={"User-Agent": "weather-telegram/1.0"}), timeout=25) as r:
+                d = json.load(r)
+            if d.get("stations"):
+                return d["stations"]
+        except (URLError, HTTPError, TimeoutError, ValueError, ssl.SSLError, OSError) as e:
+            print(f"air4thai {scheme} failed: {e}", file=sys.stderr)
+    return None
+
+
+def pick_station(stations):
+    if not stations:
+        return None
+    ok = []
+    for s in stations:
+        try:
+            pm = num(s["AQILast"]["PM25"]["value"])
+            la, lo = float(s["lat"]), float(s["long"])
+        except (KeyError, TypeError, ValueError):
+            continue
+        if pm is not None:
+            ok.append((s, km(LAT, LON, la, lo)))
+    if STATION_ID:
+        for s, d in ok:
+            if s.get("stationID") == STATION_ID:
+                return build_station(s, d)
+        print(f"ไม่พบข้อมูลสถานี {STATION_ID} ใน Air4Thai ตอนนี้", file=sys.stderr)
+    near = sorted((x for x in ok if x[1] <= 30), key=lambda x: x[1])
+    return build_station(*near[0]) if near and not STATION_ID else None
+
+
+def build_station(s, d):
+    L = s["AQILast"]
+    return {"id": s.get("stationID"), "area": s.get("areaTH") or s.get("nameTH") or "",
+            "pm25": num(L["PM25"]["value"]), "pm10": num((L.get("PM10") or {}).get("value")),
+            "aqi": num((L.get("AQI") or {}).get("aqi")), "date": L.get("date", ""), "time": L.get("time", ""), "km": d}
+
+
 def pm_level(v):
     return next(l for l in PM_LEVELS if v <= l[0])
 
@@ -94,7 +157,7 @@ def r0(v):
     return "–" if v is None else str(round(v))
 
 
-def build(w, a):
+def build(w, a, st=None):
     now = datetime.now(BKK)
     lines = [f"🌤 <b>{html.escape(PLACE)}</b> · {now:%H:%M} น."]
     alerts = []
@@ -110,10 +173,16 @@ def build(w, a):
         lines.append("⚠️ ดึงข้อมูลสภาพอากาศไม่สำเร็จ")
 
     lines.append("")
-    if a and a.get("current") and a["current"].get("pm2_5") is not None:
-        v = a["current"]["pm2_5"]
+    model_pm = a["current"].get("pm2_5") if a and a.get("current") else None
+    v = st["pm25"] if st and st.get("pm25") is not None else model_pm
+    if v is not None:
         _, ico, label, tip = pm_level(v)
-        lines.append(f"{ico} <b>PM2.5 {v:.1f} µg/m³</b> · {label}")
+        if st and st.get("pm25") is not None:
+            extra = f" · AQI {r0(st['aqi'])}" if st.get("aqi") is not None else ""
+            lines.append(f"{ico} <b>PM2.5 {v:.1f} µg/m³</b> เฉลี่ย 24 ชม. · {label}{extra}")
+            lines.append(f"📍 สถานี {html.escape(st['area'])} ({html.escape(st['date'])} {html.escape(st['time'])} น.)")
+        else:
+            lines.append(f"{ico} <b>PM2.5 {v:.1f} µg/m³</b> · {label} <i>(แบบจำลอง)</i>")
         if v > TH_PM:
             alerts.append(f"PM2.5 สูง ({label}): {tip}")
     else:
@@ -155,7 +224,10 @@ def build(w, a):
         lines += ["", "⚠️ <b>แจ้งเตือน</b>"] + [f"• {html.escape(x)}" for x in alerts]
     else:
         lines += ["", "✅ ไม่มีสิ่งผิดปกติตามเกณฑ์ที่ตั้งไว้"]
-    lines += ["", "<i>PM2.5 เป็นค่าจากแบบจำลอง เทียบกับ Air4Thai ก่อนตัดสินใจเรื่องสุขภาพ</i>"]
+    if st and st.get("pm25") is not None:
+        lines += ["", "<i>PM2.5 จากสถานีตรวจวัด Air4Thai (กรมควบคุมมลพิษ) สภาพอากาศจาก Open-Meteo</i>"]
+    else:
+        lines += ["", "<i>PM2.5 เป็นค่าจากแบบจำลอง ไม่ใช่เครื่องวัดจริง เทียบกับ Air4Thai ก่อนตัดสินใจเรื่องสุขภาพ</i>"]
     return "\n".join(lines)
 
 
@@ -212,7 +284,8 @@ def main():
     w, a = fetch()
     if not w and not a:
         sys.exit("ดึงข้อมูลจาก Open-Meteo ไม่สำเร็จ")
-    text = build(w, a)
+    st = pick_station(fetch_air4thai())
+    text = build(w, a, st)
     if os.getenv("DRY_RUN"):
         print(text)
         return
