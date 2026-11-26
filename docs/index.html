@@ -176,6 +176,11 @@ details summary{cursor:pointer;font-family:var(--display);font-weight:600}
 .chip button:hover{color:var(--bad)}
 .addrow{display:flex;flex-wrap:wrap;gap:8px;align-items:center}
 
+a.btn{display:inline-flex;align-items:center;text-decoration:none;color:var(--fg)}
+.radarimg{margin:0 0 12px}
+.radarimg img{display:block;width:100%;max-width:640px;border-radius:10px;background:var(--surface2)}
+.radarimg figcaption{margin-top:6px}
+.links{display:flex;flex-wrap:wrap;gap:8px}
 .skel{opacity:.6}
 @media (max-width:760px){
   .hero{grid-template-columns:1fr;min-height:0}
@@ -234,6 +239,11 @@ details summary{cursor:pointer;font-family:var(--display);font-weight:600}
     <div class="card tile" id="uv"></div>
     <div class="card tile" id="wind"></div>
     <div class="card tile" id="humid"></div>
+  </section>
+
+  <section class="card" id="radar" hidden>
+    <h2>เรดาร์ฝน <small>กรมอุตุนิยมวิทยา</small></h2>
+    <div id="radarbody"></div>
   </section>
 
   <section class="card" id="weekcard" hidden>
@@ -344,6 +354,25 @@ function humLv(h){
   if(h==null||isNaN(h))return["",""];
   if(h<30)return["แห้งมาก","🏜️"];if(h<40)return["ค่อนข้างแห้ง","🙂"];if(h<=60)return["กำลังสบาย","😊"];
   if(h<=70)return["เริ่มชื้น","😅"];if(h<=85)return["ชื้นอบอ้าว","🥵"];return["ชื้นมาก","💦"];
+}
+/* สถานีเรดาร์ของกรมอุตุนิยมวิทยา: [ชื่อ, หน้าภาพเคลื่อนไหว, lat, lon] ลิงก์ทั้งหมดอ้างอิงจากหน้า weather.tmd.go.th */
+const TMD="https://weather.tmd.go.th/";
+const RADARS=[["เชียงราย","criloop.php",19.91,99.84],["ลำพูน","lmploop.php",18.57,99.01],["พิษณุโลก","phsloop.php",16.82,100.27],["เพชรบูรณ์","phbloop.php",16.42,101.16],
+  ["ขอนแก่น","kkn240loop.php",16.44,102.84],["สกลนคร","sknloop.php",17.16,104.15],["อุบลราชธานี","ubn240loop.php",15.24,104.85],["สุรินทร์","srnloop.php",14.88,103.49],
+  ["ชัยนาท","chnloop.php",15.19,100.13],["นครนายก","kkwloop.php",14.21,101.21],["สมุทรสงคราม","skm240loop.php",13.41,100.00],["สุวรรณภูมิ","svp240loop.php",13.69,100.75],
+  ["ระยอง","rygloop.php",12.68,101.28],["สุราษฎร์ธานี","srtloop.php",9.14,99.32],["ระนอง","rng240Loop.php",9.95,98.61],["ภูเก็ต","pktloop.php",7.88,98.39],
+  ["ตรัง","trgloop.php",7.56,99.61],["หาดใหญ่","hyiloop.php",7.0,100.47],["สทิงพระ","stploop.php",7.5,100.4]];
+function renderRadar(){
+  const p=PROVS.find(x=>x[0]===prov);if(!p)return;
+  const near=RADARS.map(r=>({r,km:dist(p[1],p[2],r[2],r[3])})).sort((a,b)=>a.km-b.km).slice(0,2);
+  const skn=RADARS.find(r=>r[0]==="สกลนคร"),sknKm=dist(p[1],p[2],skn[2],skn[3]);
+  const v=Math.floor(Date.now()/600000); /* ภาพใหม่ทุก 10 นาที */
+  let h="";
+  if(sknKm<=200)h+=`<figure class="radarimg"><a href="${TMD}sknloop.php" target="_blank" rel="noopener"><img src="${TMD}skn/sknloop.gif?v=${v}" alt="เรดาร์ฝนสกลนคร ภาพเคลื่อนไหวย้อนหลัง" loading="lazy" onerror="this.closest('figure').hidden=true"></a><figcaption class="note">เรดาร์สกลนคร ภาพเคลื่อนไหวย้อนหลัง เวลาในภาพเป็น UTC (เวลาไทย = UTC + 7 ชั่วโมง) ยิ่งสีไปทางเหลือง ส้ม แดง ฝนยิ่งหนัก</figcaption></figure>`;
+  h+='<div class="links">'+near.map((x,i)=>`<a class="btn${i===0?" primary":""}" href="${TMD}${x.r[1]}" target="_blank" rel="noopener">เรดาร์${x.r[0]} (ห่าง ${f0(x.km)} กม.)</a>`).join("")
+    +`<a class="btn" href="${TMD}composite/index_composite.html" target="_blank" rel="noopener">ภาพรวมทั้งประเทศ</a><a class="btn" href="${TMD}composite/index_qpe.html" target="_blank" rel="noopener">ฝนสะสมทั่วประเทศ</a></div>`;
+  $("#radarbody").innerHTML=h;
+  $("#radar").hidden=false;
 }
 const DIRS=["เหนือ","ตะวันออกเฉียงเหนือ","ตะวันออก","ตะวันออกเฉียงใต้","ใต้","ตะวันตกเฉียงใต้","ตะวันตก","ตะวันตกเฉียงเหนือ"];
 const dirName=d=>DIRS[Math.round(((d%360)+360)%360/45)%8];
@@ -474,7 +503,7 @@ function renderHero(w,a){
       <p class="say">${summarySentence(w,a)}</p>
     </div>
     <div class="facts">
-      <div class="fact"><span>รู้สึกเหมือน</span><b>${f0(c.apparent_temperature)}°</b><em>ชื้น ${f0(c.relative_humidity_2m)}% ${humLv(c.relative_humidity_2m).join(" ")}</em></div>
+      <div class="fact"><span>รู้สึกเหมือน</span><b>${f0(c.apparent_temperature)}°</b><em>ชื้น ${f0(c.relative_humidity_2m)}%<br>${humLv(c.relative_humidity_2m).join(" ")}</em></div>
       <div class="fact"><span>ฝนใน 6 ชม.</span><b>${f0(pr6)}%</b><em>${pr6>=50?"พกร่ม":"ยังไม่ชัดเจน"}</em></div>
       <div class="fact"><span>PM2.5</span><b>${pmv!=null?f0(pmv):"–"}</b><em>${L?L.label:"ไม่มีข้อมูล"}</em></div>
     </div>
@@ -614,6 +643,7 @@ function render(r){
   return{a,list:paint(r.w,a)};
 }
 function paint(w,a){
+  renderRadar();
   if(w){renderHero(w,a);renderHourly(w);renderAdvice(w,a);renderMinis(w);renderDays(w)}
   else $("#hero").innerHTML='<div>โหลดข้อมูลสภาพอากาศไม่สำเร็จ ลองรีเฟรชอีกครั้ง</div>';
   renderAir(w,a);

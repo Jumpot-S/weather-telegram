@@ -6,6 +6,7 @@
   PLACE_NAME  ชื่อสถานที่ที่แสดง   (ค่าเริ่มต้น: นครพนม (อ.เมือง))
   LAT, LON    พิกัด               (ค่าเริ่มต้น: 17.4105, 104.7783)
   PM_THRESHOLD, HEAT_THRESHOLD, RAIN_THRESHOLD, UV_THRESHOLD  เกณฑ์แจ้งเตือน
+  RADAR_URL   ลิงก์เรดาร์ฝนที่แนบท้ายข้อความ (ค่าเริ่มต้น เรดาร์สกลนครสำหรับนครพนม)
   STATION_ID  รหัสสถานี Air4Thai (ค่าเริ่มต้น 88t = นครพนม อ.เมือง ถ้าเว้นว่างและเปลี่ยน LAT/LON จะเลือกสถานีที่ใกล้ที่สุดภายใน 30 กม.)
   SEND_TIMES  เวลาส่งตามเวลาไทย คั่นด้วยจุลภาค (ค่าเริ่มต้น: 05:00,11:00,15:00,18:00,21:00)
   DRY_RUN=1   พิมพ์ข้อความแทนการส่งจริง
@@ -38,6 +39,7 @@ LAT = float(env("LAT", "17.4105"))
 LON = float(env("LON", "104.7783"))
 DEFAULT_AREA = env("LAT", "") == "" and env("LON", "") == ""
 STATION_ID = env("STATION_ID", "88t" if DEFAULT_AREA else "")
+RADAR_URL = env("RADAR_URL", "https://weather.tmd.go.th/sknloop.php" if DEFAULT_AREA else "https://weather.tmd.go.th/composite/index_composite.html")
 TH_PM = float(env("PM_THRESHOLD", "37.5"))
 TH_HEAT = float(env("HEAT_THRESHOLD", "38"))
 TH_RAIN = float(env("RAIN_THRESHOLD", "60"))
@@ -261,6 +263,7 @@ def build(w, a, st=None):
         lines += ["", "⚠️ <b>แจ้งเตือน</b>"] + [f"• {html.escape(x)}" for x in alerts]
     else:
         lines += ["", "✅ ไม่มีสิ่งผิดปกติตามเกณฑ์ที่ตั้งไว้"]
+    lines += ["", f'🌧 <a href="{html.escape(RADAR_URL)}">ดูเรดาร์ฝน (กรมอุตุนิยมวิทยา)</a>']
     if st and st.get("pm25") is not None:
         lines += ["", "<i>PM2.5 จากสถานีตรวจวัด Air4Thai (กรมควบคุมมลพิษ) สภาพอากาศจาก Open-Meteo</i>"]
     else:
