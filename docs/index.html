@@ -267,6 +267,10 @@ a.btn{display:inline-flex;align-items:center;text-decoration:none;color:var(--fg
         <label>โอกาสฝนใน 6 ชม. ตั้งแต่ (%)<input id="c-rain" type="number" min="10" max="100" step="5"></label>
         <label>ดัชนี UV ตั้งแต่<input id="c-uv" type="number" min="1" max="15" step="1"></label>
       </div>
+      <h3 style="margin-top:18px;font-family:var(--display);font-size:.95rem">แหล่งข้อมูลอุณหภูมิ</h3>
+      <p class="note" style="margin:6px 0 8px">อุณหภูมิในแอปมาจากแบบจำลองคอมพิวเตอร์ ไม่ใช่ค่าที่วัดจริง แต่ละแบบจำลองให้ค่าไม่เท่ากัน ถ้าตัวเลขต่างจากแอปสภาพอากาศในเครื่องของคุณ ให้กดเทียบ แล้วเลือกแบบจำลองที่ใกล้ที่สุด</p>
+      <div class="addrow"><select id="model" aria-label="เลือกแบบจำลองสภาพอากาศ"></select><button id="cmp" type="button" class="btn">เทียบทุกแบบจำลองตอนนี้</button></div>
+      <div id="cmpout" style="margin-top:8px"></div>
       <h3 style="margin-top:18px;font-family:var(--display);font-size:.95rem">เวลาแจ้งเตือนประจำวัน (เวลาไทย UTC+7)</h3>
       <div class="times" id="times" aria-live="polite"></div>
       <div class="addrow">
@@ -296,7 +300,10 @@ const store={
 let prov=store.get("prov","นครพนม");
 if(!PROVS.some(p=>p[0]===prov))prov="นครพนม";
 const DEFAULT_TIMES=["05:00","11:00","15:00","18:00","21:00"];
-const cfg=Object.assign({pm:37.5,heat:38,rain:60,uv:8,notify:false,times:DEFAULT_TIMES.slice()},store.get("cfg",{}));
+const MODELS=[["","อัตโนมัติ (ค่าเริ่มต้น)"],["ecmwf_ifs025","ECMWF (ยุโรป)"],["gfs_seamless","GFS (สหรัฐ)"],["icon_seamless","ICON (เยอรมนี)"],["jma_seamless","JMA (ญี่ปุ่น)"],["ukmo_seamless","UKMO (อังกฤษ)"],["meteofrance_seamless","Météo-France (ฝรั่งเศส)"],["gem_seamless","GEM (แคนาดา)"],["cma_grapes_global","CMA (จีน)"]];
+const modelName=id=>(MODELS.find(m=>m[0]===id)||["",id])[1];
+const cfg=Object.assign({pm:37.5,heat:38,rain:60,uv:8,notify:false,times:DEFAULT_TIMES.slice(),model:""},store.get("cfg",{}));
+if(!MODELS.some(m=>m[0]===cfg.model))cfg.model="";
 if(!Array.isArray(cfg.times))cfg.times=DEFAULT_TIMES.slice();
 let last={w:null,a:null,alerts:[]};
 
@@ -440,10 +447,12 @@ function rankFromStations(list){
 async function load(){
   const p=PROVS.find(x=>x[0]===prov);
   const q=`latitude=${p[1]}&longitude=${p[2]}&timezone=Asia%2FBangkok`;
-  const wUrl=`https://api.open-meteo.com/v1/forecast?${q}&current=temperature_2m,apparent_temperature,relative_humidity_2m,precipitation,weather_code,wind_speed_10m,wind_direction_10m,wind_gusts_10m,pressure_msl,cloud_cover`
+  const mq=cfg.model?`&models=${cfg.model}`:"";
+  const wUrl=`https://api.open-meteo.com/v1/forecast?${q}${mq}&current=temperature_2m,apparent_temperature,relative_humidity_2m,precipitation,weather_code,wind_speed_10m,wind_direction_10m,wind_gusts_10m,pressure_msl,cloud_cover`
     +`&hourly=temperature_2m,apparent_temperature,precipitation_probability,uv_index,weather_code&daily=weather_code,temperature_2m_max,temperature_2m_min,precipitation_probability_max,precipitation_sum,uv_index_max,sunrise,sunset&forecast_days=7`;
   const aUrl=`https://air-quality-api.open-meteo.com/v1/air-quality?${q}&current=pm2_5,pm10,us_aqi&hourly=pm2_5&forecast_days=2`;
-  const [w,a,st]=await Promise.allSettled([fetch(wUrl).then(j),fetch(aUrl).then(j),loadA4T()]);
+  const fw=()=>fetch(wUrl).then(j).catch(e=>{if(!cfg.model)throw e;return fetch(wUrl.replace(mq,"")).then(j).then(d=>{d._modelFailed=true;return d})}); /* ถ้าแบบจำลองที่เลือกใช้ไม่ได้ ถอยกลับไปค่าเริ่มต้น */
+  const [w,a,st]=await Promise.allSettled([fw(),fetch(aUrl).then(j),loadA4T()]);
   return{w:w.status==="fulfilled"?w.value:null,a:a.status==="fulfilled"?a.value:null,stations:st.status==="fulfilled"?st.value:null};
 }
 async function loadRank(){
@@ -499,7 +508,7 @@ function renderHero(w,a){
   const uv=w.daily.uv_index_max[di<0?0:di];
   const pmv=a&&a.current?a.current.pm2_5:null,L=pmv!=null?PM_LV[pmLevel(pmv)]:null;
   el.innerHTML=`<div>
-      <div class="where"><b>${prov}</b><span>อัปเดต ${hh(c.time)} น.</span></div>
+      <div class="where"><b>${prov}</b><span>อัปเดต ${hh(c.time)} น.</span>${cfg.model?`<span>${w._modelFailed?"แบบจำลองที่เลือกใช้ไม่ได้ ใช้ค่าเริ่มต้นแทน":"แบบจำลอง "+modelName(cfg.model)}</span>`:""}</div>
       <div class="big">${icon(c.weather_code,day,"ico")}<div class="temp">${f0(c.temperature_2m)}<small>°C</small></div></div>
       <div class="cond">${wx(c.weather_code)}</div>
       <p class="say">${summarySentence(w,a)}</p>
@@ -745,6 +754,26 @@ for(const k of ["pm","heat","rain","uv"]){
   const el=$("#c-"+k);el.value=cfg[k];
   el.addEventListener("change",()=>{const v=parseFloat(el.value);if(!isNaN(v)){cfg[k]=v;store.set("cfg",cfg);if(last.w||last.a){last.alerts=computeAlerts(last.w,last.a);renderAlerts(last.alerts)}}});
 }
+const msel=$("#model");
+msel.innerHTML=MODELS.map(m=>`<option value="${m[0]}">${m[1]}</option>`).join("");msel.value=cfg.model;
+msel.addEventListener("change",()=>{cfg.model=msel.value;store.set("cfg",cfg);refresh()});
+$("#cmp").addEventListener("click",async()=>{
+  const out=$("#cmpout"),p=PROVS.find(x=>x[0]===prov);out.innerHTML='<span class="note">กำลังเทียบ…</span>';
+  const ids=["best_match"].concat(MODELS.slice(1).map(m=>m[0]));
+  try{
+    const d=await fetch(`https://api.open-meteo.com/v1/forecast?latitude=${p[1]}&longitude=${p[2]}&timezone=Asia%2FBangkok&current=temperature_2m&models=${ids.join(",")}`).then(j);
+    const rows=ids.map(id=>[id,d.current[`temperature_2m_${id}`]]).filter(x=>x[1]!=null);
+    if(!rows.length)throw new Error("empty");
+    out.innerHTML=`<div class="note">อุณหภูมิตอนนี้ที่ ${prov} (${hh(d.current.time)} น.) เทียบกับแอปสภาพอากาศในเครื่องของคุณ</div>`
+      +rows.map(([id,v])=>{const key=id==="best_match"?"":id,on=key===cfg.model;
+        return`<div class="kv"><span>${id==="best_match"?"อัตโนมัติ (ค่าเริ่มต้น)":modelName(id)}</span><b>${f1(v)}°C</b><button type="button" class="btn" data-m="${key}"${on?" disabled":""}>${on?"กำลังใช้":"ใช้ตัวนี้"}</button></div>`}).join("");
+  }catch(e){out.innerHTML='<span class="note">เทียบไม่สำเร็จ ลองใหม่อีกครั้ง</span>'}
+});
+$("#cmpout").addEventListener("click",e=>{
+  const m=e.target&&e.target.dataset?e.target.dataset.m:undefined;
+  if(m===undefined)return;cfg.model=m;store.set("cfg",cfg);msel.value=m;$("#cmpout").innerHTML='<span class="note">กำลังอัปเดต…</span>';
+  refresh().then(()=>{$("#cmpout").innerHTML=`<span class="note">ใช้แบบจำลอง ${esc(modelName(m))} แล้ว ดูตัวเลขที่การ์ดด้านบน</span>`});
+});
 function syncNotifyBtn(){
   const b=$("#notify");
   if(!("Notification" in window)){b.textContent="เบราว์เซอร์นี้ไม่รองรับการแจ้งเตือน";b.disabled=true;return}

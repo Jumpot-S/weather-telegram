@@ -24,6 +24,7 @@ jobs:
         env:
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
           TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+          WEATHER_MODEL: ${{ vars.WEATHER_MODEL }}
           SEND_TIMES: ${{ vars.SEND_TIMES }}
           PLACE_NAME: ${{ vars.PLACE_NAME }}
           LAT: ${{ vars.LAT }}

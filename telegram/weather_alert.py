@@ -7,6 +7,7 @@
   LAT, LON    พิกัด               (ค่าเริ่มต้น: 17.4105, 104.7783)
   PM_THRESHOLD, HEAT_THRESHOLD, RAIN_THRESHOLD, UV_THRESHOLD  เกณฑ์แจ้งเตือน
   RADAR_URL   ลิงก์เรดาร์ฝนที่แนบท้ายข้อความ (ค่าเริ่มต้น เรดาร์สกลนครสำหรับนครพนม)
+  WEATHER_MODEL  แบบจำลองสภาพอากาศของ Open-Meteo เช่น ecmwf_ifs025 (เว้นว่าง = อัตโนมัติ)
   STATION_ID  รหัสสถานี Air4Thai (ค่าเริ่มต้น 88t = นครพนม อ.เมือง ถ้าเว้นว่างและเปลี่ยน LAT/LON จะเลือกสถานีที่ใกล้ที่สุดภายใน 30 กม.)
   SEND_TIMES  เวลาส่งตามเวลาไทย คั่นด้วยจุลภาค (ค่าเริ่มต้น: 05:00,11:00,15:00,18:00,21:00)
   DRY_RUN=1   พิมพ์ข้อความแทนการส่งจริง
@@ -40,6 +41,7 @@ LON = float(env("LON", "104.7783"))
 DEFAULT_AREA = env("LAT", "") == "" and env("LON", "") == ""
 STATION_ID = env("STATION_ID", "88t" if DEFAULT_AREA else "")
 RADAR_URL = env("RADAR_URL", "https://weather.tmd.go.th/sknloop.php" if DEFAULT_AREA else "https://weather.tmd.go.th/composite/index_composite.html")
+MODEL_Q = f"&models={env('WEATHER_MODEL', '')}" if env("WEATHER_MODEL", "") else ""
 TH_PM = float(env("PM_THRESHOLD", "37.5"))
 TH_HEAT = float(env("HEAT_THRESHOLD", "38"))
 TH_RAIN = float(env("RAIN_THRESHOLD", "60"))
@@ -79,7 +81,7 @@ def get_json(url, tries=3):
 def fetch():
     q = urlencode({"latitude": LAT, "longitude": LON, "timezone": "Asia/Bangkok"})
     w = get_json(
-        "https://api.open-meteo.com/v1/forecast?" + q
+        "https://api.open-meteo.com/v1/forecast?" + q + MODEL_Q
         + "&current=temperature_2m,apparent_temperature,relative_humidity_2m,precipitation,weather_code,wind_speed_10m"
         + "&hourly=temperature_2m,apparent_temperature,precipitation_probability,uv_index,weather_code"
         + "&daily=temperature_2m_max,temperature_2m_min,precipitation_probability_max,precipitation_sum,uv_index_max"
