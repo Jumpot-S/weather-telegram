@@ -16,7 +16,9 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 30
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
+      - name: Trust Air4Thai certificate chain
+        run: bash scripts/trust_air4thai.sh
       - name: Send Telegram weather report
         run: python3 telegram/weather_alert.py
         env:

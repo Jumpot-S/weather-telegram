@@ -19,7 +19,9 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
+      - name: Trust Air4Thai certificate chain
+        run: bash scripts/trust_air4thai.sh
       - name: Fetch Air4Thai
         run: python3 scripts/air4thai_snapshot.py "$RUNNER_TEMP/air4thai.json"
       - name: Publish to data branch

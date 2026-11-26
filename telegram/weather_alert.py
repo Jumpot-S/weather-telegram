@@ -105,15 +105,25 @@ def km(lat1, lon1, lat2, lon2):
 
 
 def fetch_air4thai():
-    """ดึงค่าจากสถานีตรวจวัดจริงของกรมควบคุมมลพิษ ลอง https ก่อน ถ้า TLS ไม่ผ่านจึงลอง http (ข้อมูลสาธารณะ อ่านอย่างเดียว)"""
-    for scheme in ("https", "http"):
+    """ดึงค่าจากสถานีตรวจวัดจริงของกรมควบคุมมลพิษ
+
+    เซิร์ฟเวอร์ Air4Thai ส่งใบรับรอง SSL ไม่ครบสาย ลองตรวจใบรับรองตามปกติก่อน (workflow เพิ่มใบกลางให้แล้ว)
+    ถ้ายังไม่ผ่าน จึงลองแบบไม่ตรวจใบรับรองเป็นทางสุดท้าย ข้อมูลนี้เป็นค่าคุณภาพอากาศสาธารณะ อ่านอย่างเดียว
+    """
+    loose = ssl.create_default_context()
+    loose.check_hostname = False
+    loose.verify_mode = ssl.CERT_NONE
+    for label, ctx in (("verified", None), ("unverified", loose)):
         try:
-            with urlopen(Request(f"{scheme}://{A4T}", headers={"User-Agent": "weather-telegram/1.0"}), timeout=25) as r:
+            req = Request(f"https://{A4T}", headers={"User-Agent": "weather-telegram/1.0"})
+            with urlopen(req, timeout=25, context=ctx) as r:
                 d = json.load(r)
             if d.get("stations"):
+                if label == "unverified":
+                    print("เตือน: ดึง Air4Thai โดยไม่ตรวจใบรับรอง SSL (เซิร์ฟเวอร์ส่งใบรับรองไม่ครบ)", file=sys.stderr)
                 return d["stations"]
         except (URLError, HTTPError, TimeoutError, ValueError, ssl.SSLError, OSError) as e:
-            print(f"air4thai {scheme} failed: {e}", file=sys.stderr)
+            print(f"air4thai {label} failed: {e}", file=sys.stderr)
     return None
 
 

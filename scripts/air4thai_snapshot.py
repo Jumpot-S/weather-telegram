@@ -15,14 +15,22 @@ URL = "air4thai.pcd.go.th/services/getNewAQI_JSON.php"
 
 
 def fetch():
-    for scheme in ("https", "http"):
+    """ลองตรวจใบรับรอง SSL ตามปกติก่อน (ขั้นตอนก่อนหน้าเพิ่มใบกลางให้แล้ว) ถ้าไม่ผ่านจึงลองแบบไม่ตรวจเป็นทางสุดท้าย
+    ข้อมูลเป็นค่าคุณภาพอากาศสาธารณะ อ่านอย่างเดียว"""
+    loose = ssl.create_default_context()
+    loose.check_hostname = False
+    loose.verify_mode = ssl.CERT_NONE
+    for label, ctx in (("verified", None), ("unverified", loose)):
         try:
-            with urlopen(Request(f"{scheme}://{URL}", headers={"User-Agent": "weather-telegram/1.0"}), timeout=30) as r:
+            req = Request(f"https://{URL}", headers={"User-Agent": "weather-telegram/1.0"})
+            with urlopen(req, timeout=30, context=ctx) as r:
                 d = json.load(r)
             if d.get("stations"):
+                if label == "unverified":
+                    print("เตือน: ดึงโดยไม่ตรวจใบรับรอง SSL (เซิร์ฟเวอร์ Air4Thai ส่งใบรับรองไม่ครบสาย)", file=sys.stderr)
                 return d["stations"]
         except (URLError, HTTPError, TimeoutError, ValueError, ssl.SSLError, OSError) as e:
-            print(f"{scheme} failed: {e}", file=sys.stderr)
+            print(f"{label} failed: {e}", file=sys.stderr)
     return None
 
 
